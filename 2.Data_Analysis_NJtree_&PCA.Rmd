@@ -1,0 +1,358 @@
+---
+title: "vcf_to_NJtree_PCA" #or some title for your code
+author: "yourname"
+date: '`r Sys.Date()`' #when Rmarkdown knits this, it will print the current date
+output: 
+  html_document: 
+    toc: true
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# ddRADseq data analysis
+## Set your working environment
+First, if you haven't already, make a folder in your project folder and copy in the .vcf file (data processing steps output, likely from ipyrad). Your population codes file (if you have it ready, otherwise info below) and analysis output files will also . Make sure to copy your 
+```{r}
+setwd("/Users/kristenlehman/Desktop/Projects/SIFI/R_analysis/SIFI123a")
+```
+## load libraries
+```{r}
+library(adegenet)
+library(ape)
+library(StAMPP)
+library(poppr)
+library(vcfR)
+library(devtools)
+library("BiocManager")
+library(dartRverse)
+library(dartR.base) #remove quotes around package name
+library(dartR.captive)
+library(dartR.data)
+library(dartR.popgen)
+library(dartR.sim)
+library(dartR.spatial)
+library(ggplot2)
+```
+
+## Import data: VCF file, convert to genlight object
+Read in the VCF file
+```{r}
+SIFI.vcf <- read.vcfR("/Users/kristenlehman/Desktop/Projects/SIFI/ipyrad_data_processing/SIFI_123a/SIFI-less10kconreads_outfiles/SIFI-less10kconreads.vcf")
+SIFI.vcf
+```
+Convert the VCF file to genlight object 
+Name it something easy to find as your genlight object, you will use it many times in the downstream analyses. 
+```{r}
+gl_SIFI <- vcfR2genlight(SIFI.vcf)
+```
+An alternative is to import a fasta file into a genlight object
+```{r}
+#name <- fasta2genlight(path/to/fastafile)
+```
+
+## Population codes for sequences
+You will need to attach population fields to do any analyses by population. This is done by reading in a CSV file that is a single column of population codes or names and putting it in the pop slot of your genlight object.  
+
+*Making your popcodes.csv* 
+The column of population codes should be in the same order as the order samples in your output from IPYRAD. In the _outfiles in your ipyrad directory, open _stats.txt file, copy the list of samples with their coverage, past into Numbers/Excel, delete everything but the list of files and fill in population codes/names. Once you have the population codes, copy just the column of pop_codes and paste in a new document in Sublime or text editor of your choice and save as a .csv. It's important that the order of the pop_codes matches the order of the sample names in the vcf file.
+
+Read in population file:
+```{r}
+pop.data <- read.table("SIFI123a-pop.csv")
+head(pop.data)
+#tell R to make this a string
+str(pop.data)
+```
+
+Add population codes to your genlight object
+```{r}
+pop(gl_SIFI) <- pop.data$V1
+```
+
+Display the genlight as a matrix
+```{r}
+#as.matrix(x)
+#gl_SIFI <-as.matrix(gl_SIFI)
+#as.matrix(gl_SIFI) don't do this unless you can figure out why... it just reels out the gl 
+```
+
+attach population fields
+```{r}
+#pop.data <- read.table("SIFI123a-pop.csv")
+#REDUNDANT FROM LINE 62?
+```
+
+## Quick check of data: Compliance check, n = populations plot and missing data plot
+Genlight compliance check
+This is run by dartR to make sure that the genlight object conforms to dartR requirements, if it doesn't, it will rectify it. 
+```{r}
+#genlight compliance check (figure out what this means)
+gl_SIFI <- gl.compliance.check(gl_SIFI)
+```
+
+This counts samples by population and makes and object calls it popvsN
+```{r}
+popvsn <-table(pop(gl_SIFI))
+popvsn # table of populations and number of samples in them 
+barplot(popvsn, las=2, cex.names = .6) #Barplot of number of samples per population
+```
+
+distance matrix computation - doesn't seem to have been run - but see `dist` R Documentation in search to the right. Seems relevant but maybe not in this section.  
+```{r}
+#dist(x, method = "euclidean", diag = FALSE, upper = FALSE, p = 2)
+#X.dist <- dist(X) ####not sure what this is for yet
+```
+
+Assess missing data
+This produces a plot where each sample is in a row down the y axis and loci are across the x
+```{r}
+glPlot(gl_SIFI, posi="topleft")
+```
+From the final stats file in ipyrad, it tells us: 
+`## Alignment matrix statistics:`
+`snps matrix size: (186, 60916), 56.09% missing sites.`
+`sequence matrix size: (186, 1533980), 59.91% missing sites.`
+
+## Neighbor joining tree
+figure out how to export as a tre file for FigTree manipulation and also why it doesn't plot as rmd code but it does 
+```{r}
+library(ape)
+tre <- nj(dist(as.matrix(gl_SIFI)))
+plot(tre, typ="fan", cex=0.7)
+title("NJ tree fan of SIFI")
+
+plot(tre, typ="unrooted", cex=0.7)
+title("NJ tree unrooted SIFI")
+```
+
+# PCA and PCoA
+## When to use PCA vs PCoA
+When analyzing ddRAD data, use PCA if you want to identify major patterns of variation across many correlated genetic markers, while PCoA is preferable when you want to visualize the distances between samples based on a pre-calculated genetic distance matrix, particularly when the relationships between samples are not necessarily linear or when you have a large number of rare alleles. 
+
+**Key differences between PCA and PCoA:**
+- *Data input:*
+PCA works directly on the raw genetic data, while PCoA requires a pre-calculated distance matrix between samples. 
+- *Linearity assumption:*
+PCA assumes linear relationships between variables, making it less suitable for complex non-linear patterns, whereas PCoA can handle non-linear distances. 
+**When to use PCA on ddRAD data:**
+- When you want to identify the major axes of genetic variation and explain the most significant patterns in the data. 
+If you have a relatively large number of genetic markers with moderate to high correlation. - When you need to perform downstream analyses like ANOVA on the principal components. 
+**When to use PCoA on ddRAD data:**
+- When you are primarily interested in visualizing the relationships between samples based on their genetic distances, regardless of linearity. 
+- If you are using a specialized distance metric that captures specific aspects of the genetic variation (e.g., considering rare alleles). 
+- When you have a relatively small number of samples and want to focus on the overall pattern of genetic similarity. 
+
+## Set Color Palette for plots
+First, to get it out of the way, set a color palette for plotting in ggplot. See color manuals to develop your own.
+```{r}
+# Make sure to have at least as many colors as you have populations.
+cbbPalette <- c("darkorchid","#56B4E9", "#009E73", "#0072B2", "darkolivegreen2","cyan2","cyan3","cyan4", "cornflowerblue","darkseagreen2","darkolivegreen","cornsilk4","darkkhaki","#CC79A7", "#F0E442", "#E69F00","coral","brown3", "darkorange")
+
+# To use for fills, add
+scale_fill_manual(values=cbbPalette)
+#To use for line and point colors, add
+scale_colour_manual(values=cbbPalette)
+```
+
+## PCA analysis of genlight object
+This takes a while and is calculating the PCA. It will ask you the number of axis, where you ideally want to put the number of axis as indicated by a scree plot which we don't have code for yet. It will then make your `pca` file which you use to plot your PCA. It will also produce a barplot of Eigenvalues.
+```{r}
+#adgenet
+#run PCA analysis on genlight object and create 
+pca2 <- glPca(gl_SIFI)
+#names(pca) shows the objects within the list pca
+names(pca2)
+```
+define PCs to be included 
+```{r}
+#here:we're just taking a peak to see that pca has values unders scores
+head(pca2$scores)
+#now we make an object of the number of pcs we're interested in - here, its 1 through 2
+pca2_scores <-data.frame(pca2$scores[,1:2])
+#just making sure it did what we wanted it to
+head(pca2_scores)
+#attach population assignments to the pca_scores object
+pca2_scores$pop<-pop.data$V1
+#makes sure it attached the population info 
+head(pca2_scores)
+```
+### Plot the PCs - ggplot2
+```{r}
+# load ggplot2
+library(ggplot2)
+
+# if the population codes are numbers, R will treat them as numbers and get confused.
+# therefore, tell R to treat them as a factor
+#pca2_scores$pop <- as.factor(pca2_scores$pop)
+
+#Call the colors to be used
+scale_color_manual(cbbPalette)
+
+# opens a PDF plot window, plots using ggplot2 with color blind palette, saves to working directory.
+pca_plot <- ggplot(data=pca2_scores, aes(x = PC1, y = PC2, color = pca2_scores$pop, arrows = TRUE)) +
+  geom_point(size = 0.75) + scale_colour_manual(values=cbbPalette) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+pdf("PCA_1v2_SIFI123a.pdf", width=4.5,height=5.5)
+dev.off()
+
+#pdf("PCA_2v1_taxon.pdf", width=3.5,height=2.5)
+#ggplot(data=PCscores, aes(x = PC1, y = PC2, color = ERPAKE5$other, arrows = TRUE)) + geom_point(size = 0.75) + scale_colour_manual(values=cbbPalette) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+#theme gets rid of gray background
+dev.off()
+```
+
+# PCoA 
+The function `gl.pcoa` "takes the genotypes for individuals and undertakes a Pearson Principal Component analysis (PCA) on SNP or Sequence tag P/A (SilicoDArT) data; it undertakes a Gower Principal Coordinate analysis (PCoA) if supplied with a distance matrix."
+
+**Testing use of computed distance matrix for PCoA**
+```{r}
+SIFIdistmatrix <- dist(gl_SIFI, method = "euclidean", diag = FALSE, upper = FALSE, p = 2)
+```
+
+This one takes some time over 4hrs (not sure bc I left) with this data of 186 ddRADseq.This produces a 2 paneled figure: top one is a PCoA on SNP Genotypes scree plot where % contribution hits near 0% at 2 PCA axes. The panel below show a barplot with the title "Noise Axes -- all eigen values positive", x axis "eigen value" to 4+ and y axis "Count"
+```{r}
+#ur_name_for_output <- gl.pcoa(genlight_object_name, nfactors=x) where nfactors is the number of axes with a default of 5.
+pcoa <- gl.pcoa(gl_SIFI, nfactors=4)
+```
+
+```{r}
+## scree plot
+gl.pcoa.scree(pcoa) # this is not running but I 
+```
+
+
+```{r}
+## names () shows you the objects within the list "pc"
+names(pc)
+pc$loadings
+
+## the individual scores are within the "scores" object. Pull the first three over, as a data frame
+
+pc_scores<-data.frame(pc$scores[,1:4])
+
+## see that PC1 is in there
+pc_scores$PC1
+
+#tried this line below to see if it would fix the error in the next row
+#pop.data <- read.table("SIFI_1_2_popcodes.csv")
+
+## Put population codes on the PC scores
+pc_scores$pop <-pop.data$V1
+
+##make sure that the pop codes are attached
+head(pc_scores)
+```
+## now you can plot the PCs however you like in ggplot2
+## load ggplot2
+library(ggplot2)
+
+## if the population codes are numbers, R will treat them as numbers and get confused.
+## therefore, tell R to treat them as a factor
+
+
+pca2_scores$pop <- as.factor(pca2_scores$pop)
+
+scale_color_manual(cbbPalette)
+
+## opens a PDF plot window, plots using ggplot2 with color blind palette, saves to working directory.
+
+pca_plot <- ggplot(data=pca2_scores, aes(x = PC1, y = PC2, color = pca2_scores$pop, arrows = TRUE)) + geom_point(size = 0.75) + scale_colour_manual(values=cbbPalette) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+pdf("PCA_1v2_populationellipsereareagreen.pdf", width=4.5,height=5.5)
+
+dev.off()
+
+pdf("PCA_2v1_taxon.pdf", width=3.5,height=2.5)
+ggplot(data=PCscores, aes(x = PC1, y = PC2, color = ERPAKE5$other, arrows = TRUE)) +
+  geom_point(size = 0.75) + scale_colour_manual(values=cbbPalette) + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) #this gets rid of gray background
+dev.off()
+
+
+
+#PCA analysis of genlight object
+pcaER <- glPca(genlight)
+
+pcaER <- glPca(ERPAKE5)
+pca <-glPca(duve)
+pca
+pca<-glPca(data1)
+data1
+pca<-glPca(data)
+data1
+
+
+scatter(pcaER, posi="bottomright", col=131)
+title("PCA of the X")
+
+## this below from the glPCA documentation
+s.class(pca$scores, pop(duve), col=colors()[c(131,134,139)])
+add.scatter.eig(pca$eig,2,1,2)
+title("PCA")
+
+
+
+#PcoA
+pcoalima <- gl.pcoa(data, nfactors=5)
+gl.pcoa.plot(pcoalima, data, xaxis=1, yaxis=4)
+
+#genlight to plink output for admixture
+
+gl2plink(data,plink_path = getwd("/Users/kristenlehman/Desktop/plink_mac_20240804"),bed_file = TRUE,
+         outfile = "LIMAgl_plink",outpath = ("/Users/kristenlehman/Desktop/plink_mac_20240804"),chr_format = "character",pos_cM = "0",ID_dad = "0",
+ID_mom = "0",sex_code = "unknown",phen_value = "0",verbose = NULL)
+
+#Neis'D between populations X= genlight object
+stamppNeisD(X, pop = TRUE)
+stamppNeisD(duve, pop = TRUE)
+stamppNeisD(data, pop = TRUE)
+
+#Fst between pops X= gem light object
+stamppFst(data, nboots = 100, percent = 95, nclusters = 1)
+stamppFst(duve, nboots = 100, percent = 95, nclusters = 1)
+
+#Gmatrix This function calculates a genomic relationship matrix following the method described by Yang et al (2010); X= genlight object
+stamppGmatrix(genlightobject)
+
+#write csv output
+write.csv(stamppGmatrix(ERAL), file= "GmatrixERAL")
+
+
+## scree plot
+gl.pcoa.scree(pc)
+glPca(data, )
+## names () shows you the objects within the list "pc"
+names(pc)
+pc$loadings
+
+## the individual scores are within the "scores" object. Pull the first three over, as a data frame
+PCscores<-data.frame(pc$scores[,1:3])
+## see that PC1 is in there
+PCscores$PC1
+
+## Put population codes on the PC scores
+PCscores$pop <-pop.data$V1
+##make sure that the pop codes are attached
+PCscores
+
+## now you can plot the PCs however you like in ggplot2
+## load ggplot2
+library(ggplot2)
+
+## if the population codes are numbers, R will treat them as numbers and get confused.
+## therefore, tell R to treat them as a factor
+PCscores$pop <- as.factor(PCscores$pop)
+
+## opens a PDF plot window, plots using ggplot2 with color blind palette, saves to working directory.
+pdf("PCA_2v1_full.pdf", width=3.5,height=2.5)
+ggplot(data=PCscores, aes(x = PC1, y = PC2, color = pop, arrows = TRUE)) +
+  geom_point(size = 0.75) +
+  #stat_ellipse() +
+  scale_colour_manual(values=cbbPalette) + #this applies the manual color choices, but must active first
+  theme_bw() + #this gets rid of gray background
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) #this gets rid of gray background
+dev.off()
+
+
