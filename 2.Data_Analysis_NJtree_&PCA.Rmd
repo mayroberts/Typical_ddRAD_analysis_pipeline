@@ -130,15 +130,16 @@ title("NJ tree unrooted SIFI")
 
 # PCA and PCoA
 ## When to use PCA vs PCoA
-When analyzing ddRAD data, use PCA if you want to identify major patterns of variation across many correlated genetic markers, while PCoA is preferable when you want to visualize the distances between samples based on a pre-calculated genetic distance matrix, particularly when the relationships between samples are not necessarily linear or when you have a large number of rare alleles. 
+
+
 
 **Key differences between PCA and PCoA:**
-- *Data input:*
+*Data input:*
 PCA works directly on the raw genetic data, while PCoA requires a pre-calculated distance matrix between samples. 
-- *Linearity assumption:*
+*Linearity assumption:*
 PCA assumes linear relationships between variables, making it less suitable for complex non-linear patterns, whereas PCoA can handle non-linear distances. 
 **When to use PCA on ddRAD data:**
-- When you want to identify the major axes of genetic variation and explain the most significant patterns in the data. 
+When you want to identify the major axes of genetic variation and explain the most significant patterns in the data. 
 If you have a relatively large number of genetic markers with moderate to high correlation. - When you need to perform downstream analyses like ANOVA on the principal components. 
 **When to use PCoA on ddRAD data:**
 - When you are primarily interested in visualizing the relationships between samples based on their genetic distances, regardless of linearity. 
